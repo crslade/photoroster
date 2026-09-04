@@ -117,5 +117,10 @@ the term ends. Check your institution's FERPA guidance before distributing it.
 
 ## License
 
-No license file yet — add one before making the repository public if you want
-others to be able to reuse it.
+[Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/)
+(CC BY 4.0) — see [LICENSE](LICENSE). Use, modify and redistribute it, including
+commercially, as long as you credit Christopher Slade and note any changes.
+
+The license covers this code and documentation only. It says nothing about the
+rosters you feed it: student names and photos belong to the students and your
+institution — see [Privacy](#privacy).

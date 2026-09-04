@@ -9,6 +9,8 @@ Usage:
     python photo_roster.py CS_140-01_-_WEB_DESIGN.pdf
     python photo_roster.py roster.pdf -o out.pdf --course "CS 140-01" \
         --title "Web Design" --cols 5 --rows 5 --sort
+
+Copyright (c) 2026 Christopher Slade. Licensed CC BY 4.0; see LICENSE.
 """
 
 import argparse
