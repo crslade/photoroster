@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Photo Roster</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <h1>Photo Roster</h1>
+  <p class="lede">Enter the passcode to continue.</p>
+  <div class="card">
+    <form method="post" action="/login">
+      <label for="passcode">Passcode</label>
+      <input type="password" id="passcode" name="passcode" autofocus
+             autocomplete="current-password" required>
+      <div class="actions"><button type="submit">Continue</button></div>
+    </form>
+    <p class="msg bad">{{error}}</p>
+  </div>
+</main>
+</body>
+</html>

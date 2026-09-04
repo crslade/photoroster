@@ -2,6 +2,10 @@
 data/
 *.pdf
 
+# Deploy secrets — .kamal/secrets.example is the committed template
+.kamal/secrets*
+!.kamal/secrets.example
+
 .venv/
 __pycache__/
 *.pyc

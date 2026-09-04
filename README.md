@@ -17,7 +17,8 @@ This script keeps the two columns that matter and lays them out as a grid.
 ## Requirements
 
 - Python 3.9+
-- [PyMuPDF](https://pymupdf.readthedocs.io/)
+- [PyMuPDF](https://pymupdf.readthedocs.io/) — plus FastAPI and Uvicorn if you
+  want the website (`requirements-web.txt`)
 
 ```bash
 python3 -m venv .venv
@@ -47,6 +48,7 @@ By default the new PDF is written next to the input as
 | `--course` | Override the course number, e.g. `"CS 140-01"` |
 | `--title` | Override the course title, e.g. `"Web Design"` |
 | `--subtitle` | Replace the line under the heading (default: student count) |
+| `--font` | Path to a `.ttf`/`.ttc` to embed, overriding the font search |
 
 The course number and title are read out of the export's own heading
 (`View Course Section Roster: CS 140-01 - WEB DESIGN`), so `--course` and
@@ -64,12 +66,96 @@ Bigger faces for a large lecture hall, or a compact sheet for a small section:
     --subtitle "Fall 2026 - Portable 2 - MWF 9:00"
 ```
 
+## Run it as a website
+
+`app.py` puts the same converter behind a one-page site: drop in a roster PDF,
+get the photo roster back. The upload is converted in memory and returned in
+the same response — it is never written to disk, queued, or logged — so there
+is no copy of a student record left on the server to clean up afterwards.
+
+The site is behind a shared passcode, set with `ROSTER_PASSCODE`. It refuses
+to start without one unless you pass `ROSTER_ALLOW_OPEN=1` to say you meant it.
+
+### Locally
+
+```bash
+.venv/bin/pip install -r requirements-web.txt
+ROSTER_PASSCODE=letmein .venv/bin/uvicorn app:app --reload --port 8000
+```
+
+### Deploying with Kamal
+
+One container, no database, no volumes, no accessories. [Kamal](https://kamal-deploy.org)
+deploys any Docker image, so this can share a host with unrelated apps —
+`kamal-proxy` routes by hostname and gets the certificate itself.
+
+[`config/deploy.yml`](config/deploy.yml) is a working config rather than a
+skeleton, so change `image`, `servers` and `proxy.hosts` to your own before
+the first deploy.
+
+1. Point a DNS `A` record at the server. Let's Encrypt is asked for a
+   certificate on the first deploy and will fail if the name does not resolve
+   yet.
+
+2. Fill in the secrets. `.kamal/secrets` is gitignored; the template lists
+   what belongs in it:
+
+   ```bash
+   cp .kamal/secrets.example .kamal/secrets
+   ```
+
+   As written it reads both values from your shell — a registry token that
+   can push, and the passcode for the site:
+
+   ```fish
+   set -x KAMAL_REGISTRY_PASSWORD (cat ~/.registry-token)
+   set -x ROSTER_PASSCODE (openssl rand -base64 12)
+   ```
+
+   Kamal evaluates that file as shell, so either value can come from a
+   password manager instead; `kamal secrets --help` lists the ones it knows.
+
+3. Commit. Kamal tags images with the git SHA and will not deploy a dirty
+   tree.
+
+4. Deploy:
+
+   ```bash
+   kamal setup     # first time: pushes the image, boots the app
+   kamal deploy    # every time after
+   ```
+
+`kamal setup` also boots `kamal-proxy`. If the host already runs other Kamal
+apps that is a no-op, as long as every project on the box is on the same Kamal
+version — when one moves ahead, the proxy has to be rebooted for all of them
+at once, so upgrade them together.
+
+`kamal logs -f` follows the app, `kamal shell` opens a bash prompt inside it,
+and `kamal rollback` puts the previous version back.
+
+To rotate the passcode, change `ROSTER_PASSCODE` and run `kamal deploy`.
+Everyone is signed out and enters the new one.
+
+### Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ROSTER_PASSCODE` | — | Shared passcode. Required. |
+| `ROSTER_ALLOW_OPEN` | — | `1` to run with no passcode at all |
+| `ROSTER_MAX_UPLOAD_MB` | `25` | Largest accepted upload |
+| `ROSTER_FONT` | — | Font to embed, overriding the search in `photo_roster.py` |
+
+Keep `proxy.buffering.max_request_body` in `deploy.yml` above
+`ROSTER_MAX_UPLOAD_MB`, so an oversized upload gets the app's own readable
+error instead of the proxy cutting the connection.
+
 ## Privacy
 
 Class rosters are student records. This tool is built to keep them local:
 
-- **No network access.** The script imports `pymupdf`, `argparse`, `re`,
-  `pathlib` and `sys`. It makes no HTTP requests and has no telemetry.
+- **No network access.** `photo_roster.py` imports `pymupdf` and five modules
+  from the standard library. It makes no HTTP requests and has no telemetry,
+  whether you run it from the command line or behind the website.
 - **Nothing personal is committed.** `.gitignore` excludes `data/` and `*.pdf`,
   so neither the export nor the generated roster can be pushed by accident.
   Keep your PDFs in `data/`.
@@ -77,6 +163,19 @@ Class rosters are student records. This tool is built to keep them local:
   `examples/make_sample.py` from invented names and flat colour tiles. Nothing
   in this repository came from a real roster. Regenerate it with
   `.venv/bin/python examples/make_sample.py`.
+
+Hosting it adds a server to that picture, so the web front end is built to
+hold as little as possible:
+
+- **Nothing hits disk.** The upload is read into memory, converted, and
+  returned in the same response. There is no upload directory, no job queue
+  and no database, so there is nothing to purge and nothing to leak.
+- **No names in logs.** Access logs record the request line only, and
+  unexpected errors return a fixed message rather than a traceback, which
+  could otherwise quote a name out of the roster.
+- **The passcode is a shared secret, not an account system.** It keeps the
+  form off the open internet; it is not an audit trail. Rotate
+  `ROSTER_PASSCODE` at the end of each term — changing it signs everyone out.
 
 The output PDF contains the same photos and names as the input, so treat it
 like the export itself: keep it off shared drives, and shred the printout when
@@ -112,8 +211,10 @@ the term ends. Check your institution's FERPA guidance before distributing it.
   detection in `find_columns()` adjusted.
 - Photos are used at whatever resolution the export embeds (about 113 × 150 px),
   which is fine for a printed grid but will not enlarge well.
-- The Unicode font search covers macOS font paths; on Linux or Windows, pass a
-  font by editing `MAC_FONTS`, or accept Helvetica.
+- The Unicode font search covers common macOS and Linux paths; elsewhere, pass
+  `--font` (or set `ROSTER_FONT`), or accept Helvetica and its Latin-1-only
+  coverage. Use a single-face `.ttf`/`.otf`: MuPDF mis-subsets Noto Sans CJK's
+  `.ttc` collection, inflating the output to ~14 MB and dropping glyphs.
 
 ## License
 

@@ -57,14 +57,13 @@ def main():
                 for i, n in enumerate(NAMES)]
     students[7]["xref"] = None  # show the "no photo" placeholder
 
-    tmp_pdf = root / "docs" / "sample.pdf"
-    photo_roster.build_pdf(students, tmp_pdf, "CS 140-01", "Web Design",
-                           5, 5, holder, "Sample output — fabricated names")
+    data, _ = photo_roster.build_pdf(students, "CS 140-01", "Web Design",
+                                     5, 5, holder,
+                                     "Sample output — fabricated names")
 
-    doc = pymupdf.open(tmp_pdf)
+    doc = pymupdf.open(stream=data, filetype="pdf")
     doc[0].get_pixmap(dpi=110).save(out_png)
     doc.close()
-    tmp_pdf.unlink()
     print(f"wrote {out_png}")
 
 

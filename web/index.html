@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Photo Roster</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <h1>Photo Roster</h1>
+  <p class="lede">
+    Turn a Workday <em>View Course Section Roster</em> export into a one-glance
+    grid of photos and names.
+  </p>
+
+  <div class="card">
+    <form id="form" method="post" action="/roster" enctype="multipart/form-data">
+      <label class="drop" id="drop" tabindex="0">
+        <input type="file" id="file" name="file" accept="application/pdf,.pdf" required>
+        <strong id="dropTitle">Choose a roster PDF</strong>
+        <span id="dropHint">or drag one here &middot; up to {{max_mb}} MB</span>
+      </label>
+
+      <details>
+        <summary>Layout options</summary>
+        <div class="grid">
+          <div>
+            <label for="cols">Photos across</label>
+            <input type="number" id="cols" name="cols" value="5" min="2" max="10">
+          </div>
+          <div>
+            <label for="rows">Photos down</label>
+            <input type="number" id="rows" name="rows" value="5" min="2" max="10">
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label for="course">Course number</label>
+            <input type="text" id="course" name="course" placeholder="from the PDF">
+          </div>
+          <div>
+            <label for="title">Course title</label>
+            <input type="text" id="title" name="title" placeholder="from the PDF">
+          </div>
+        </div>
+        <div class="grid">
+          <div style="grid-column: 1 / -1">
+            <label for="subtitle">Line under the heading</label>
+            <input type="text" id="subtitle" name="subtitle"
+                   placeholder="student count" maxlength="120">
+          </div>
+        </div>
+        <div class="check" style="margin-top:.9rem">
+          <input type="checkbox" id="sort" name="sort" value="true">
+          <label for="sort">Sort alphabetically instead of roster order</label>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button type="submit" id="go">Build roster</button>
+      </div>
+    </form>
+
+    <p class="msg" id="msg"></p>
+  </div>
+
+  <footer>
+    <p>
+      The PDF is converted in memory and sent straight back &mdash; it is never
+      written to disk on the server. The roster you download holds the same
+      student names and photos as the export, so treat it the same way.
+    </p>
+    <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+  </footer>
+</main>
+
+<script>
+const form = document.getElementById('form');
+const fileInput = document.getElementById('file');
+const drop = document.getElementById('drop');
+const dropTitle = document.getElementById('dropTitle');
+const dropHint = document.getElementById('dropHint');
+const msg = document.getElementById('msg');
+const go = document.getElementById('go');
+
+function say(text, kind) {
+  msg.textContent = text;
+  msg.className = 'msg' + (kind ? ' ' + kind : '');
+}
+
+function showFile() {
+  const f = fileInput.files[0];
+  if (!f) return;
+  dropTitle.textContent = f.name;
+  dropHint.textContent = (f.size / 1048576).toFixed(1) + ' MB · click to change';
+  say('');
+}
+fileInput.addEventListener('change', showFile);
+
+['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault();
+  drop.classList.add('over');
+}));
+['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault();
+  drop.classList.remove('over');
+}));
+drop.addEventListener('drop', ev => {
+  if (ev.dataTransfer.files.length) {
+    fileInput.files = ev.dataTransfer.files;
+    showFile();
+  }
+});
+drop.addEventListener('keydown', ev => {
+  if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); fileInput.click(); }
+});
+
+// Submitting over fetch keeps errors on the page instead of navigating to a
+// bare JSON body, and lets the summary line report what was in the roster.
+form.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  if (!fileInput.files[0]) return say('Choose a roster PDF first.', 'bad');
+
+  go.disabled = true;
+  const label = go.textContent;
+  go.textContent = 'Building…';
+  say('');
+
+  try {
+    const res = await fetch('/roster', { method: 'POST', body: new FormData(form) });
+
+    if (!res.ok) {
+      if (res.status === 401) { location.reload(); return; }
+      const body = await res.json().catch(() => ({}));
+      return say(body.error || 'That did not work. Try again.', 'bad');
+    }
+
+    const name = (res.headers.get('Content-Disposition') || '')
+      .match(/filename="([^"]+)"/)?.[1] || 'photo_roster.pdf';
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    const students = res.headers.get('X-Roster-Students');
+    const missing = Number(res.headers.get('X-Roster-Missing-Photos'));
+    const pages = res.headers.get('X-Roster-Pages');
+    say(`Downloaded ${name} — ${students} students on ${pages} page(s)`
+        + (missing ? `, ${missing} without a photo.` : '.'), 'ok');
+  } catch (err) {
+    say('The upload did not finish. Check your connection and try again.', 'bad');
+  } finally {
+    go.disabled = false;
+    go.textContent = label;
+  }
+});
+</script>
+</body>
+</html>

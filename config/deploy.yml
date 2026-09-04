@@ -1,0 +1,58 @@
+# Name of your application. Used to uniquely configure containers.
+service: photoroster
+
+# Name of the container image.
+image: crslade/photoroster
+
+# Deploy to these servers. Same box as tutormaster — kamal-proxy is already
+# running there and routes by hostname, so the two apps coexist.
+servers:
+  web:
+    - 137.184.47.151
+
+# Enable SSL auto certification via Let's Encrypt.
+proxy:
+  ssl: true
+  hosts:
+    - photoroster.gettutoring.online
+  # Uvicorn listens on 8000, not the Kamal default of 80.
+  app_port: 8000
+  healthcheck:
+    path: /up
+  buffering:
+    # Bytes. Keep above ROSTER_MAX_UPLOAD_MB so an oversized roster gets the
+    # app's own readable error rather than a severed connection.
+    max_request_body: 33554432 # 32 MB
+
+# Credentials for your image host.
+registry:
+  server: ghcr.io
+  username: crslade
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Configure builder setup.
+builder:
+  arch: amd64
+  # Building on the server itself skips QEMU emulation and is noticeably
+  # faster for this image (apt + pip). Uncomment if the cross-build drags.
+  # remote: ssh://root@137.184.47.151
+
+# Inject ENV variables into containers (secrets come from .kamal/secrets).
+env:
+  clear:
+    ROSTER_MAX_UPLOAD_MB: 25
+    # Only if you ever need Chinese, Japanese or Korean names — see the font
+    # note in the Dockerfile. Noto Sans is already in the image and handles
+    # everything else, kahakō and ʻokina included.
+    # ROSTER_FONT: /usr/share/fonts/truetype/custom/unicode.ttf
+  secret:
+    - ROSTER_PASSCODE
+
+# Aliases are triggered with "kamal <alias>".
+aliases:
+  shell: app exec --interactive --reuse "bash"
+  logs: app logs
+
+# No volumes, no accessories, no asset_path: a roster is converted in memory
+# and returned in the same response, so the container holds no state at all.

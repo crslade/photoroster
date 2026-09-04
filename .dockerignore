@@ -1,0 +1,18 @@
+# Never let a roster into a build context, let alone an image layer.
+data/
+*.pdf
+
+.git/
+.gitignore
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+docs/
+examples/
+config/
+.kamal/
+README.md
+LICENSE
+Dockerfile
+.dockerignore

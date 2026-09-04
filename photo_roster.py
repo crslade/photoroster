@@ -3,7 +3,7 @@
 "View Course Section Roster" PDF export.
 
 Everything runs locally: the source PDF is read, photos and names are pulled
-out in memory, and a new PDF is written next to it. Nothing is uploaded.
+out in memory, and a new PDF is built in memory. Nothing is uploaded.
 
 Usage:
     python photo_roster.py CS_140-01_-_WEB_DESIGN.pdf
@@ -14,6 +14,7 @@ Copyright (c) 2026 Christopher Slade. Licensed CC BY 4.0; see LICENSE.
 """
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -166,7 +167,21 @@ def course_info(doc):
 
 # ------------------------------------------------------------------- output
 
-MAC_FONTS = [
+# Searched in order for a Unicode-capable font; the first that loads wins.
+# $ROSTER_FONT jumps the queue, so a deployment can pin a font without a code
+# change.
+#
+# Prefer a single-face file. Noto Sans CJK ships as a .ttc collection that
+# MuPDF mis-subsets: the output grows to ~14 MB and loses glyphs, including
+# Latin ones. To cover Chinese, Japanese or Korean names, point $ROSTER_FONT
+# at a single-face .ttf/.otf that has them.
+FONT_PATHS = [
+    os.environ.get("ROSTER_FONT"),
+    # Linux / container. Noto Sans has the kahakō (ā ē ī ō ū) and the ʻokina
+    # (U+02BB) that Polynesian names need; Latin-1 Helvetica does not.
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    # macOS
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     "/System/Library/Fonts/Helvetica.ttc",
     "/Library/Fonts/Arial Unicode.ttf",
@@ -185,7 +200,7 @@ def needs_unicode_font(students):
 
 def pick_font(page, explicit=None):
     """Embed a Unicode-capable font so accented names render correctly."""
-    candidates = [explicit] if explicit else MAC_FONTS
+    candidates = [explicit] if explicit else FONT_PATHS
     for path in candidates:
         if path and Path(path).exists():
             try:
@@ -216,7 +231,8 @@ def fit_lines(text, font, size, width, max_lines=2):
     return lines
 
 
-def build_pdf(students, out_path, course, title, cols, rows, src_doc, subtitle=""):
+def build_pdf(students, course, title, cols, rows, src_doc, subtitle="", font=None):
+    """Lay the grid out and return the finished PDF as bytes."""
     page_w, page_h = pymupdf.paper_size("letter")
     margin = 36
     per_page = cols * rows
@@ -230,7 +246,7 @@ def build_pdf(students, out_path, course, title, cols, rows, src_doc, subtitle="
     for pno in range(total_pages):
         page = out.new_page(width=page_w, height=page_h)
         if embed:
-            fontname, fontfile = pick_font(page)
+            fontname, fontfile = pick_font(page, font)
             if font_obj is None:
                 font_obj = pymupdf.Font(fontfile=fontfile) if fontfile else pymupdf.Font("helv")
         elif font_obj is None:
@@ -312,9 +328,61 @@ def build_pdf(students, out_path, course, title, cols, rows, src_doc, subtitle="
             out.subset_fonts()
         except Exception:
             pass
-    out.save(out_path, garbage=3, deflate=True)
+    data = out.tobytes(garbage=3, deflate=True)
     out.close()
-    return total_pages
+    return data, total_pages
+
+
+# ---------------------------------------------------------------------- api
+
+
+class RosterError(ValueError):
+    """The upload is not a roster we can read. Safe to show to a user."""
+
+
+def build_roster(pdf_bytes, *, course=None, title=None, subtitle="",
+                 cols=5, rows=5, sort=False, font=None):
+    """Turn Workday roster PDF bytes into photo-roster PDF bytes.
+
+    Pure in-memory: nothing is read from or written to disk, which is what
+    lets the web front end handle student records without ever persisting
+    them. Returns (pdf_bytes, info), where info carries the counts and the
+    course/title actually used.
+    """
+    try:
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        raise RosterError("That file could not be opened as a PDF.")
+
+    try:
+        if doc.needs_pass:
+            raise RosterError("That PDF is password-protected. Remove the "
+                              "password and try again.")
+        students = extract_students(doc)
+        if not students:
+            raise RosterError(
+                "No students found. This needs the PDF from Workday\u2019s "
+                "\u201cView Course Section Roster\u201d report \u2014 other reports, and "
+                "other student systems, lay their pages out differently.")
+        if sort:
+            students.sort(key=lambda s: s["name"].lower())
+
+        found_course, found_title = course_info(doc)
+        course = course or found_course
+        title = title or found_title
+
+        data, pages = build_pdf(students, course, title, cols, rows, doc,
+                                subtitle, font)
+    finally:
+        doc.close()
+
+    return data, {
+        "students": len(students),
+        "missing_photos": sum(1 for s in students if not s["xref"]),
+        "pages": pages,
+        "course": course,
+        "title": title,
+    }
 
 
 # --------------------------------------------------------------------- main
@@ -330,32 +398,27 @@ def main():
     ap.add_argument("--cols", type=int, default=5, help="photos across (default 5)")
     ap.add_argument("--rows", type=int, default=5, help="photos down (default 5)")
     ap.add_argument("--sort", action="store_true", help="sort alphabetically by name")
+    ap.add_argument("--font", help="path to a .ttf/.ttc to embed (overrides the search)")
     args = ap.parse_args()
 
     src = Path(args.pdf)
     if not src.exists():
         sys.exit(f"No such file: {src}")
 
-    doc = pymupdf.open(src)
-    students = extract_students(doc)
-    if not students:
-        sys.exit("Found no students — is this a Workday course section roster export?")
-    if args.sort:
-        students.sort(key=lambda s: s["name"].lower())
-
-    course, title = course_info(doc)
-    course = args.course or course
-    title = args.title or title
+    try:
+        data, info = build_roster(
+            src.read_bytes(), course=args.course, title=args.title,
+            subtitle=args.subtitle, cols=args.cols, rows=args.rows,
+            sort=args.sort, font=args.font)
+    except RosterError as err:
+        sys.exit(str(err))
 
     out_path = Path(args.output) if args.output else src.with_name(
         src.stem + "_photo_roster.pdf")
-    pages = build_pdf(students, out_path, course, title, args.cols, args.rows,
-                      doc, args.subtitle)
-    missing = sum(1 for s in students if not s["xref"])
-    doc.close()
+    out_path.write_bytes(data)
 
-    print(f"{len(students)} students ({missing} without a photo) "
-          f"-> {out_path} [{pages} page(s)]")
+    print(f"{info['students']} students ({info['missing_photos']} without a "
+          f"photo) -> {out_path} [{info['pages']} page(s)]")
 
 
 if __name__ == "__main__":
