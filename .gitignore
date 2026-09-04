@@ -1,0 +1,8 @@
+# Roster exports and generated rosters — never commit student data
+data/
+*.pdf
+
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
