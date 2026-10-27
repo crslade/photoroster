@@ -18,7 +18,8 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
 COPY requirements.txt requirements-web.txt ./
-RUN pip install --no-cache-dir -r requirements-web.txt
+RUN pip install --no-cache-dir -r requirements-web.txt \
+ && python -m pip uninstall -y pip
 
 COPY photo_roster.py app.py ./
 COPY web/ ./web/
