@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 # Noto Sans covers the Latin Extended letters and modifier letters that
 # Polynesian names need — kahakō (ā ē ī ō ū) and the ʻokina (U+02BB) — which
@@ -10,6 +10,7 @@ FROM python:3.13-slim
 # a ~14 MB PDF with glyphs missing. COPY a single-face .ttf into the image
 # and set ROSTER_FONT to it instead.
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends fonts-noto-core \
  && rm -rf /var/lib/apt/lists/*
 
