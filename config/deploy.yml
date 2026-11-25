@@ -8,7 +8,13 @@ image: crslade/photoroster
 # running there and routes by hostname, so the two apps coexist.
 servers:
   web:
-    - 137.184.47.151
+    hosts:
+      - 137.184.47.151
+    options:
+      # /tmp in RAM: if anything (Starlette's upload spooling, a library)
+      # ever writes a roster to a temp file, it never reaches the disk.
+      # 64 MB covers the 32 MB proxy body cap with room to spare.
+      tmpfs: /tmp:rw,noexec,nosuid,size=64m
 
 # Enable SSL auto certification via Let's Encrypt.
 proxy:
