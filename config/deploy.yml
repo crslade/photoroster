@@ -14,7 +14,7 @@ servers:
 proxy:
   ssl: true
   hosts:
-    - photoroster.gettutoring.online
+    - photoroster.gethelplab.com
   # Uvicorn listens on 8000, not the Kamal default of 80.
   app_port: 8000
   healthcheck:
